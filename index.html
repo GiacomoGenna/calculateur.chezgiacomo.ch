@@ -977,15 +977,19 @@
   var OVENS = {
     plaque: { nom: "Four ménager, plaque", temp: "250 °C", preheat: 30, perPizza: 14,
       cookTxt: "10 à 14 minutes", hydra: [58, 64], ball: [220, 250], w: 230, deuxTemps: true,
+      hydraWhy: "sans surface brûlante sous la pâte, l'eau n'a pas le temps de s'évaporer : trop humide, elle détrempe pendant les douze minutes de cuisson",
       preheatNote: "Le four seul à 250 °C. La plaque part froide et huilée, avec la pizza dessus." },
     pierre: { nom: "Four ménager + pierre", temp: "250 °C", preheat: 55, perPizza: 10,
       cookTxt: "7 à 9 minutes", hydra: [62, 68], ball: [230, 260], w: 260, deuxTemps: false,
+      hydraWhy: "la pierre saisit le dessous dès l'enfournement, tu peux monter en eau sans détremper",
       preheatNote: "Pierre à l'intérieur, four à fond, grille en position haute. Aucun raccourci ici : une pierre tiède ruine tout." },
     acier: { nom: "Four ménager + acier", temp: "250 à 280 °C", preheat: 45, perPizza: 8,
       cookTxt: "5 à 7 minutes", hydra: [63, 70], ball: [230, 260], w: 280, deuxTemps: false,
+      hydraWhy: "l'acier transfère la chaleur si vite que la pâte encaisse nettement plus d'eau",
       preheatNote: "Acier en position haute, four à fond. Allume le grill les 5 dernières minutes pour le saturer de chaleur." },
     pizza: { nom: "Four à pizza", temp: "430 à 480 °C", preheat: 25, perPizza: 4,
       cookTxt: "60 à 90 secondes", hydra: [62, 70], ball: [220, 260], w: 280, deuxTemps: false,
+      hydraWhy: "à cette température l'eau s'évapore d'un coup, mais au-delà de 70 % la pâte se liquéfie avant d'avoir pris",
       preheatNote: "À pleine puissance, sole vérifiée au thermomètre infrarouge. Un four à bois, lui, demande 2 à 3 h de feu avant d'être prêt." }
   };
 
@@ -1005,17 +1009,26 @@
   // mais la chaleur détend le gluten et la fermentation longue l'affaiblit.
   function hydraGuide() {
     var teg = isTeglia();
-    var lo = teg ? 70 : oven().hydra[0], hi = teg ? 80 : oven().hydra[1], why = "";
+    var base = teg ? [70, 80] : oven().hydra;
+    var d = 0, raisons = [];
 
-    if (S.temp >= 27) { lo -= 3; hi -= 3; why = "il fait chaud, le gluten se détend"; }
-    else if (S.temp >= 24) { lo -= 1; hi -= 1; why = "cuisine tiède"; }
-    else if (S.temp <= 19) { lo += 2; hi += 2; why = "il fait frais, la pâte tient mieux"; }
+    if (S.temp >= 27) { d -= 3; raisons.push("il fait chaud, le gluten se détend"); }
+    else if (S.temp >= 24) { d -= 1; raisons.push("cuisine tiède"); }
+    else if (S.temp <= 19) { d += 2; raisons.push("il fait frais, la pâte tient mieux"); }
 
-    if (S.plan === "deuxjours") {
-      lo -= 2; hi -= 2;
-      why = why ? why + " et 48 h de maturation ramollissent la pâte" : "48 h de maturation ramollissent la pâte";
-    }
-    return { lo: clamp(lo, 55, 80), hi: clamp(hi, 55, 80), why: why };
+    if (S.plan === "deuxjours") { d -= 2; raisons.push("48 h de maturation ramollissent la pâte"); }
+
+    // Les corrections ne s'empilent pas sans fin, et on ne descend jamais sous
+    // le seuil où une pâte cesse d'être étirable — en dessous, c'est du pain.
+    d = clamp(d, -3, 3);
+    var plancher = teg ? 68 : 58, plafond = teg ? 82 : 78;
+
+    return {
+      lo: clamp(base[0] + d, plancher, plafond),
+      hi: clamp(base[1] + d, plancher, plafond),
+      why: raisons.join(", et "),
+      base: base
+    };
   }
 
   function trayDims() { return S.tray.split("x").map(Number); }
@@ -1637,9 +1650,15 @@
           : "Le compromis qui marche partout : assez d'eau pour une belle corniche, assez peu pour que la pâte reste maniable."));
 
     var G = hydraGuide();
-    out.push(mini("Hydratation × température", G.lo + "–" + G.hi + " %",
-      "L'hydratation ne se recalcule pas avec la température : 65 % restent 65 % à 18 comme à 28 °C. Ce que la chaleur change, c'est le <b>toucher</b> — le gluten se détend, la pâte colle davantage. " +
-      "La température agit sur la dose de " + leavenNoun() + " et sur l'eau à verser, pas sur le rapport eau/farine. La fourchette ci-dessus est un conseil de confort de travail, pas une correction : si tu maîtrises la pâte, garde ton réglage."));
+    out.push(mini("D’où sort cette fourchette", G.lo + "–" + G.hi + " %",
+      "Le point de départ vient de <b>" + (isTeglia() ? "la cuisson en plaque" : oven().nom.toLowerCase()) + "</b> : " +
+      (isTeglia()
+        ? "le moule soutient la pâte de tous les côtés, elle encaisse donc bien plus d’eau qu’une ronde"
+        : oven().hydraWhy) + ". " +
+      "Viennent ensuite ta température et ta durée de maturation, qui changent le <b>toucher</b> de la pâte. Ces corrections sont bornées à 3 points, et la fourchette ne descend jamais sous <b>" +
+      (isTeglia() ? "68" : "58") + " %</b> : en dessous, ce n’est plus une pâte à pizza mais une pâte à pain, impossible à étirer fin." +
+      "<p>L’hydratation elle-même ne se recalcule pas avec la température : 65 % restent 65 % à 18 comme à 28 °C. Ce que la chaleur modifie, c’est la dose de " +
+      leavenNoun() + " et la température de l’eau. Cette fourchette est un conseil, pas une correction — si tu maîtrises la pâte, garde ton réglage.</p>"));
 
     out.push(mini("Pâte visée en fin de pétrissage", targetDough() + " °C",
       S.plan === "jourmeme"
@@ -1720,12 +1739,14 @@
     $("o-hours").textContent = S.hours + " h";
     $("o-temp").textContent = S.temp + " °C";
     var G = hydraGuide();
-    var band = "Fourchette confortable ici : <b>" + G.lo + "–" + G.hi + " %</b>" + (G.why ? " (" + G.why + ")" : "") + ". ";
-    $("h-hydra").innerHTML = band + (
-      S.hydra > G.hi ? "Tu es au-dessus : pâte très molle à " + S.temp + " °C, mains mouillées obligatoires."
-      : S.hydra < G.lo ? "Tu es en dessous : pâte ferme et docile, mie plus serrée."
-      : "Tu es dedans."
-    );
+    var origine = isTeglia() ? "en plaque" : oven().nom.toLowerCase();
+    $("h-hydra").innerHTML =
+      "Fourchette conseillée pour " + origine + " : <b>" + G.lo + "–" + G.hi + " %</b>" +
+      (G.why ? " — ajustée parce que " + G.why : "") + ". " + (
+        S.hydra > G.hi ? "Tu es au-dessus : pâte très molle à " + S.temp + " °C, mains mouillées obligatoires."
+        : S.hydra < G.lo ? "Tu es en dessous : pâte ferme et docile, mie plus serrée."
+        : "Tu es dedans."
+      );
   }
 
   function bindRange(id, key, parse) {
